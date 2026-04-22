@@ -10,10 +10,12 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
+import os
+
 # ── NOAA Endpoints ───────────────────────────────────────
-MAG_URL = "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json"
-PLASMA_URL = "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json"
-KP_URL = "https://services.swpc.noaa.gov/products/noaa-estimated-planetary-k-index-1-minute.json"
+MAG_URL = os.environ.get("NOAA_MAG_URL", "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json")
+PLASMA_URL = os.environ.get("NOAA_DSCOVR_URL", "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json")
+KP_URL = os.environ.get("NOAA_KP_URL", "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json")
 
 # ── State ────────────────────────────────────────────────
 _solar_wind_buffer: List[Dict[str, Any]] = []
@@ -93,7 +95,7 @@ def _process_kp_data(kp: List[Dict[str, Any]]):
     for row in kp:
         processed.append({
             "timestamp": row["time_tag"],
-            "kp_value": float(row["estimated_kp"]),
+            "kp_value": float(row.get("Kp", row.get("estimated_kp", 0.0))),
         })
     _kp_buffer = processed[-1440:]
 
