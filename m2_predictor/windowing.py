@@ -75,20 +75,24 @@ def create_dataloaders(
     y: np.ndarray,
     train_ratio: float = 0.8,
     batch_size: int = 64,
-    num_workers: int = 2,
+    num_workers: int = 0,   # BUG FIX: default 0 — avoids Windows multiprocessing errors
 ) -> Tuple[DataLoader, DataLoader]:
     """Split data and create train/val DataLoaders."""
+    import torch
+    # pin_memory only helps with CUDA; causes warnings on CPU
+    use_pin = torch.cuda.is_available()
+
     split_idx = int(len(X) * train_ratio)
 
     train_ds = SolarWindDataset(X[:split_idx], y[:split_idx])
-    val_ds = SolarWindDataset(X[split_idx:], y[split_idx:])
+    val_ds   = SolarWindDataset(X[split_idx:], y[split_idx:])
 
     train_dl = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=use_pin,
         drop_last=True,
     )
     val_dl = DataLoader(
@@ -96,7 +100,7 @@ def create_dataloaders(
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=use_pin,
     )
 
     logger.info(f"   ✅ Train: {len(train_ds)} samples, Val: {len(val_ds)} samples")

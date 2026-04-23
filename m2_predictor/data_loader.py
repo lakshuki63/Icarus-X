@@ -83,6 +83,115 @@ def load_kp_csv(path: Optional[Path] = None) -> pd.DataFrame:
     return df
 
 
+def _parse_ar_timestamp(raw: str) -> Optional[pd.Timestamp]:
+    """
+    Parse timestamp from ar_features.csv using multiple regex patterns.
+
+    BUG 4 FIX: parse_ar_timestamp() was returning None for many filename
+    formats, making the AR feature DataFrame entirely empty and training
+    with all-zero AR features.
+
+    Patterns tried (in order):
+      1. ISO format column: '2017-09-06T12:00:00'
+      2. Filename-encoded: '2017-09-06T120000__magnetogram'
+      3. Date only: '2017-09-06'
+      4. Compact: '20170906_1200'
+    """
+    import re
+    if not isinstance(raw, str):
+        try:
+            return pd.Timestamp(raw)
+        except Exception:
+            return None
+
+    patterns = [
+        r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})',   # ISO with colons
+        r'(\d{4}-\d{2}-\d{2}T\d{6})',                  # ISO compact time
+        r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})',     # space-separated
+        r'(\d{4}-\d{2}-\d{2})',                          # date only
+        r'(\d{8}_\d{4})',                                # compact YYYYMMDD_HHMM
+        r'(\d{14})',                                      # pure numeric 14-digit
+    ]
+    for pat in patterns:
+        m = re.search(pat, raw)
+        if m:
+            try:
+                return pd.Timestamp(m.group(1).replace('T', ' ').replace('_', ' '))
+            except Exception:
+                continue
+    return None
+
+
+def load_ar_features_csv(path: Optional[Path] = None) -> Optional[pd.DataFrame]:
+    """
+    Load AR feature CSV produced by M1 Visionary export.
+
+    BUG 4 FIX: Handles multiple timestamp formats with fallback patterns.
+    Logs parse success rate — raises warning if <10% parse successfully.
+
+    Args:
+        path: Path to ar_features.csv (defaults to data/ar_features.csv)
+
+    Returns:
+        DataFrame with [timestamp, f0..f11] or None if file not found
+    """
+    if path is None:
+        path = DATA_DIR / "ar_features.csv"
+
+    if not path.exists():
+        logger.warning(f"[DATA] AR features file not found: {path}")
+        logger.warning("   Train M1 first: python m1_visionary/export_features.py")
+        return None
+
+    logger.info(f"[DATA] Loading AR features from {path}")
+    df = pd.read_csv(path)
+    total_rows = len(df)
+
+    # Try direct timestamp column first
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        n_parsed = df["timestamp"].notna().sum()
+    elif "filename" in df.columns:
+        # Parse from filename column (M1 output format)
+        df["timestamp"] = df["filename"].apply(_parse_ar_timestamp)
+        n_parsed = df["timestamp"].notna().sum()
+    else:
+        logger.warning("[DATA] AR features: no 'timestamp' or 'filename' column found")
+        # Assign sequential timestamps as fallback
+        df["timestamp"] = pd.date_range("2017-01-01", periods=total_rows, freq="12min")
+        n_parsed = total_rows
+
+    parse_rate = n_parsed / max(total_rows, 1)
+    logger.info(f"   Parsed {n_parsed}/{total_rows} timestamps ({parse_rate*100:.1f}%)")
+
+    if parse_rate < 0.10:
+        logger.warning(
+            f"   [!] Only {parse_rate*100:.1f}% of AR timestamps parsed successfully.\n"
+            "   Check ar_features.csv format — ensure it has 'timestamp' or 'filename' column.\n"
+            "   AR features will be zero-padded in training."
+        )
+        return None
+
+    # Drop rows without valid timestamps
+    df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+
+    # Ensure all AR feature columns exist
+    for col in AR_FEATURE_COLS:
+        if col not in df.columns:
+            df[col] = 0.0
+
+    # Check for degenerate features
+    f0_zero_frac = (df["f0"] == 0).mean()
+    if f0_zero_frac > 0.5:
+        logger.warning(
+            f"   [!] {f0_zero_frac*100:.0f}% of f0 (total flux) values are zero.\n"
+            "   M1 Visionary may not be producing valid AR features."
+        )
+
+    logger.info(f"   [OK] AR features: {len(df)} rows, f0_mean={df['f0'].mean():.4f}")
+    return df[['timestamp'] + AR_FEATURE_COLS]
+
+
 def merge_datasets(
     sw_df: pd.DataFrame,
     kp_df: pd.DataFrame,
@@ -206,12 +315,17 @@ def _generate_synthetic_kp(n_hours: int = 8760) -> pd.DataFrame:
 
 def prepare_training_data(
     omni_path: Optional[Path] = None,
-    kp_path: Optional[Path] = None,
+    kp_path:   Optional[Path] = None,
+    ar_path:   Optional[Path] = None,
 ) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
-    """Full pipeline: load → merge → normalize → return X, y, df."""
+    """
+    Full pipeline: load → merge → normalize → return X, y, df.
+    Includes AR features so n_features = 7 + 12 = 19.
+    """
     sw_df = load_omni_csv(omni_path)
     kp_df = load_kp_csv(kp_path)
-    merged = merge_datasets(sw_df, kp_df)
+    ar_df = load_ar_features_csv(ar_path)  # None if file not found
+    merged = merge_datasets(sw_df, kp_df, ar_df)
     X, y, _ = normalize_features(merged, fit=True)
     return X, y, merged
 
