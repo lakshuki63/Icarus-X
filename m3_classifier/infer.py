@@ -70,7 +70,7 @@ def _load_model():
         raise FileNotFoundError(
             f"M3 model checkpoint not found at: {MODEL_PATH}\n"
             "Run training first:\n"
-            "  python m3_classifier/data_download.py --source zenodo\n"
+            "  python m3_classifier/data_download.py --source donki\n"
             "  python m3_classifier/train_xgb.py"
         )
 

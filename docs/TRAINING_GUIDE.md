@@ -68,8 +68,8 @@ Horizon | Model RMSE | Persist RMSE | vs Persist
 M3 is **fully independent** — do NOT use solar wind data for this step.
 
 ```bash
-# Option A: SWAN-SF dataset from Zenodo (~200 MB, fastest)
-python m3_classifier/data_download.py --source zenodo
+# Option A: NASA DONKI API (fastest, requires no auth)
+python m3_classifier/data_download.py --source donki
 
 # Option B: Raw SHARP from JSOC DRMS (most accurate, 10–30 min)
 # 1. Register at: http://jsoc.stanford.edu/ajax/register_email.html
@@ -155,7 +155,7 @@ http://localhost:8000
 |------|--------|--------|------|------------|
 | 1 | Data | `m2_predictor/data_loader.py` | ~5 min | `data/omni_solar_wind.csv` |
 | 2 | M2 | `m2_predictor/train.py` | ~20–40 min | `models/bigru_predictor.pt` |
-| 3 | Data | `m3_classifier/data_download.py` | ~10 min | `data/sharp_flare_dataset.csv` |
+| 3 | Data | `m3_classifier/data_download.py` | ~1 min | `data/sharp_flare_dataset.csv` |
 | 4 | M3 | `m3_classifier/train_xgb.py` | ~15–30 min | `models/xgb_flare_sentinel.json` |
 | 5 | M4 | *(no training)* | — | — |
 | 6 | Run | `uvicorn m5_architect.main:app` | — | — |

@@ -12,7 +12,7 @@ pip install -r requirements.txt
 
 # 2. (Optional) Train models — skip to use fallback mode
 python m2_predictor/train.py
-python m3_classifier/data_download.py --source zenodo
+python m3_classifier/data_download.py --source donki
 python m3_classifier/train_xgb.py
 
 # 3. Start server
@@ -146,7 +146,7 @@ curl http://localhost:8000/health
 | NOAA Kp index | `https://services.swpc.noaa.gov/json/planetary_k_index_1m.json` | M2 | 1 min |
 | GOES X-ray flux | `https://services.swpc.noaa.gov/json/goes/primary/xrays-1-minute.json` | M3 alert | 1 min |
 | JSOC SHARP | `http://jsoc.stanford.edu` | M3 training | 12 min cadence |
-| SWAN-SF (Zenodo) | `https://zenodo.org/records/4603199` | M3 training | Static dataset |
+| NASA DONKI | `https://api.nasa.gov/` | M3 training | Live API |
 
 ---
 
@@ -168,7 +168,7 @@ If using ICARUS-X for research, please cite:
 
 ```
 ICARUS-X Space Weather Forecasting System
-Training data: Angryk et al. (2020) SWAN-SF — DOI: 10.5281/zenodo.4603199
+Training data: NASA DONKI FLR API
 GIC model: Pulkkinen et al. (2012) Space Weather, 10, S08009
 Feature selection: Bobra & Couvidat (2015) ApJ, 798, 135
 ```

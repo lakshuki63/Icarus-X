@@ -99,8 +99,8 @@ def load_sharp_dataset(path: Optional[Path] = None) -> pd.DataFrame:
 
     if not path.exists():
         raise FileNotFoundError(
-            f"SHARP dataset not found at: {path}\n"
-            "Run first: python m3_classifier/data_download.py --source zenodo"
+            f"M3 training data not found at {DATASET_PATH}\n"
+            "Run first: python m3_classifier/data_download.py --source donki"
         )
 
     logger.info(f"[M3] Loading SHARP dataset from: {path}")

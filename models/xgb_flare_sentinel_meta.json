@@ -1,0 +1,66 @@
+{
+  "feature_names": [
+    "f0",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5"
+  ],
+  "feature_descriptions": {
+    "f0": "total_unsigned_current_helicity (TOTUSJH)",
+    "f1": "free_energy_proxy (TOTPOT)",
+    "f2": "total_unsigned_vertical_current (TOTUSJZ)",
+    "f3": "lorentz_force_proxy (ABSNJZH)",
+    "f4": "pil_flux (R_VALUE)",
+    "f5": "field_area (AREA_ACR)"
+  },
+  "optimal_threshold": 0.1,
+  "val_f2": 0.5344,
+  "test_f2": 0.3959,
+  "test_tss": 0.4337,
+  "test_auc": 0.8549,
+  "n_train": 27192,
+  "n_val": 3000,
+  "n_test": 3000,
+  "n_positives_train": 13596,
+  "focal_gamma": 2.0,
+  "focal_alpha": 0.25,
+  "best_hparams": {
+    "max_depth": 5,
+    "eta": 0.2536999076681772,
+    "min_child_weight": 8,
+    "subsample": 0.7993292420985183,
+    "colsample_bytree": 0.5780093202212182,
+    "reg_alpha": 0.000602521573620386,
+    "reg_lambda": 0.00019517224641449495,
+    "n_estimators": 533
+  },
+  "shap_summary": [
+    {
+      "name": "free_energy_proxy (TOTPOT)",
+      "mean_abs_shap": 0.200621
+    },
+    {
+      "name": "field_area (AREA_ACR)",
+      "mean_abs_shap": 0.188314
+    },
+    {
+      "name": "lorentz_force_proxy (ABSNJZH)",
+      "mean_abs_shap": 0.167609
+    },
+    {
+      "name": "total_unsigned_current_helicity (TOTUSJH)",
+      "mean_abs_shap": 0.1535
+    },
+    {
+      "name": "pil_flux (R_VALUE)",
+      "mean_abs_shap": 0.153289
+    },
+    {
+      "name": "total_unsigned_vertical_current (TOTUSJZ)",
+      "mean_abs_shap": 0.136666
+    }
+  ],
+  "transform": "log1p after physical clip"
+}
