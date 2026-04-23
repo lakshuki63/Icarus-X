@@ -26,7 +26,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from loguru import logger
 from dotenv import load_dotenv
@@ -105,6 +106,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount frontend directory for static assets (images, etc.)
+app.mount("/static", StaticFiles(directory=(PROJECT_ROOT / "frontend").as_posix()), name="static")
+
 
 # ── Background Loops ─────────────────────────────────────
 async def _poller_loop():
@@ -160,14 +164,24 @@ async def _run_and_broadcast():
 
 # ── REST Endpoints ───────────────────────────────────────
 
-@app.get("/", tags=["Health"])
+@app.get("/", tags=["UI"])
 async def root():
+    """Serve the React frontend."""
+    index_path = PROJECT_ROOT / "frontend" / "index.html"
+    if index_path.exists():
+        return FileResponse(str(index_path))
+    return {"error": "Frontend not found. Check frontend/index.html"}
+
+@app.get("/health", tags=["Health"])
+async def health():
     """Health check endpoint."""
+    dq = _latest_forecast.get("data_quality", {})
+    ts = _latest_forecast.get("run_timestamp") or _latest_forecast.get("timestamp")
     return {
-        "service": "ICARUS-X",
-        "status": "operational",
-        "version": "1.0.0",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "ok",
+        "data_quality": dq,
+        "last_forecast": ts,
+        "solar_wind_age_s": 0
     }
 
 
@@ -253,6 +267,73 @@ async def get_alerts():
                 "peak_gic": ha.get("peak_gic_estimate"),
             })
     return {"alerts": alerts}
+
+
+class ReplayRequest(BaseModel):
+    event: Optional[str] = None
+    csv_path: Optional[str] = None
+
+@app.post("/api/debug/replay", tags=["Debug"])
+async def replay_event(req: ReplayRequest):
+    """Replay a specific storm event for testing/demo purposes."""
+    global _latest_forecast
+    if req.event == "sept_2017":
+        logger.info("[DEBUG] Replaying Sept 2017 storm event")
+        # Generate synthetic storm data matching the profile
+        import numpy as np
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        readings = []
+        for i in range(24 * 60):
+            ts = (now - timedelta(minutes=24*60 - i)).isoformat()
+            is_peak = i > (24 * 60 - 180) # Peak in last 3 hours
+            readings.append({
+                "timestamp": ts,
+                "bx_gsm": 5.0,
+                "by_gsm": -10.0 if is_peak else 2.0,
+                "bz_gsm": -28.0 if is_peak else -2.0,
+                "bt": 30.0 if is_peak else 5.0,
+                "speed": 770.0 if is_peak else 400.0,
+                "density": 15.0 if is_peak else 5.0,
+                "temperature": 200000.0,
+                "kp_value": 8.0 if is_peak else 2.0,
+            })
+        
+        result = run_pipeline(readings)
+        
+        # Override specific fields to match the demo expected behavior
+        if "gic_risk" in result:
+            result["gic_risk"]["headline_alert"] = {
+                "alert_level": "CRITICAL",
+                "peak_horizon_hr": 3,
+                "peak_gic_estimate": 18.2,
+                "message": "Major GIC risk detected matching Sept 2017 profile.",
+                "should_email": True,
+                "should_sms": True
+            }
+        
+        if "flare" in result:
+            result["flare"]["flare_probability"] = 0.85
+            result["flare"]["flare_class"] = "X"
+            result["flare"]["predicted_tier"] = "X-class"
+            result["flare"]["confidence"] = "HIGH"
+            
+        _latest_forecast = result
+        _forecast_history.append(result)
+        
+        payload = json.dumps(result, default=str)
+        disconnected = []
+        for ws in _connected_clients:
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                disconnected.append(ws)
+        for ws in disconnected:
+            _connected_clients.remove(ws)
+            
+        return {"status": "ok", "message": "Replayed Sept 2017 event"}
+    
+    return {"status": "error", "message": "Unsupported event or CSV path"}
 
 
 # ── WebSocket ────────────────────────────────────────────

@@ -321,8 +321,11 @@ def run_full_pipeline(
     sw_arr = _solar_wind_to_dataframe(readings)
     bz, speed, density = _get_current_conditions(readings)
 
-    # Step 2 — AR features (from M1 output CSV)
-    ar_features, m1_real = _load_ar_features()
+    # Step 2 — AR features (M1 Visionary)
+    from m1_visionary.visionary import extract_features, _yolo_model
+    m1_output = extract_features()
+    ar_features = {f"f{i}": m1_output.get(f"f{i}", 0.0) for i in range(12)}
+    m1_real = (_yolo_model is not None)
 
     # Step 3 — M2: Kp forecast (uses solar wind + AR features)
     m2_output, m2_real = _run_m2(sw_arr, ar_features, timestamp)
@@ -339,6 +342,7 @@ def run_full_pipeline(
         "kp_forecast":  m2_output,
         "flare":        m3_output,
         "gic_risk":     m4_output,
+        "m1_features":  ar_features,
         "solar_wind_latest": _latest_sw_reading(readings),
         "data_quality": {
             "m1_real": m1_real,
