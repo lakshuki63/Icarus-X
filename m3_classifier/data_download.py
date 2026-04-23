@@ -46,7 +46,7 @@ OUTPUT_PATH = DATA_DIR / "sharp_flare_dataset.csv"
 CONFIG = {
     # SWAN-SF dataset (Angryk et al. 2020) — pre-computed SHARP + labels
     # DOI: 10.5281/zenodo.4603199
-    "zenodo_url": "https://zenodo.org/records/4603199/files/SWAN-SF.zip",
+    "zenodo_url": "https://zenodo.org/record/4603199/files/SWAN-SF.zip?download=1",
     "zenodo_timeout_s": 300,
 
     # JSOC DRMS API base URL

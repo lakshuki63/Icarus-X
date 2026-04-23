@@ -31,6 +31,7 @@ python m2_predictor/data_loader.py
 ```
 
 ---
+done
 
 ## Step 2 — Train M2 BiGRU (Kp Predictor)
 
@@ -44,7 +45,7 @@ python m2_predictor/train.py --epochs 80 --device cuda
 # Verify output
 ls models/bigru_predictor.pt      # checkpoint
 ls models/feature_scaler.pkl      # scaler
-
+done
 # Evaluate (per-horizon RMSE vs persistence baseline)
 python m2_predictor/evaluate.py
 ```
