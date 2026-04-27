@@ -165,20 +165,7 @@ The demo replays the September 6-8, 2017 X9.3 solar flare event:
 - **GIC estimates: ~18 A/km** (CRITICAL tier)
 
 ```bash
-python demo_test.py
-```
 
----
-
-## 📊 Output Contracts
-
-All modules communicate via standardized dict structures. See the module docstrings for exact formats.
-
----
-
-## 📝 License
-
-Academic project — B.E./B.Tech Final Year
 
 ## 👤 Author
 
