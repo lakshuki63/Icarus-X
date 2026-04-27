@@ -6,7 +6,7 @@ Real-time prediction of geomagnetic storms and geomagnetically induced current (
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 SDO Magnetogram ──→ M1 Visionary (YOLOv10) ──┐
@@ -24,7 +24,7 @@ NOAA DSCOVR ──────→ Real-time Solar Wind ─────┘
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Python 3.11+
@@ -79,7 +79,7 @@ python -m http.server 3000 --directory frontend
 
 ---
 
-## 🔌 Plugging In Trained Models
+##  Plugging In Trained Models
 
 When your YOLOv10 training on Kaggle finishes:
 
@@ -113,7 +113,7 @@ python -m m3_classifier.train_xgb
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 icarus-x/
@@ -156,7 +156,7 @@ icarus-x/
 
 ---
 
-## 🧪 Demo: September 2017 Storm
+##  Demo: September 2017 Storm
 
 The demo replays the September 6-8, 2017 X9.3 solar flare event:
 - **Kp reached 8** (G4 severe storm)
@@ -167,6 +167,5 @@ The demo replays the September 6-8, 2017 X9.3 solar flare event:
 ```bash
 
 
-## 👤 Author
 
 ICARUS-X Team
