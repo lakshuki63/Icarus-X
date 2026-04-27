@@ -60,15 +60,12 @@ def run_demo():
 
     # -- M3: Sentinel -------------------------------------
     print_header("M3 - SENTINEL (Storm Classification)")
-    from m3_classifier.infer import classify_window
-    m3_out = classify_window({})
+    from m3_classifier.infer import classify_flare
+    m3_out = classify_flare({})
     print(f"  Mode: {'STUB' if m3_out.get('is_stub') else 'REAL MODEL'}")
     print(f"  Predicted tier: {m3_out['predicted_tier']}")
     print(f"  Probabilities:")
-    for i in range(5):
-        bar_len = int(m3_out[f'g{i}_prob'] * 40)
-        bar = '#' * bar_len + '-' * (40 - bar_len)
-        print(f"    G{i}: {m3_out[f'g{i}_prob']:.4f} |{bar}|")
+    print(f"    Flare Probability: {m3_out.get('flare_probability', 0):.4f}")
     print(f"  Top features:")
     for f in m3_out.get("top_features", []):
         print(f"    {f['name']:.<30s} SHAP={f['shap_value']:.2f}")
@@ -76,15 +73,15 @@ def run_demo():
     # -- M4: GIC Risk -------------------------------------
     print_header("M4 - GIC RISK ASSESSMENT")
     from m4_gic.pipeline import kp_to_gic_risk
-    m4_out = kp_to_gic_risk(m2_out, m3_out, bz=-31.0, speed=770.0, density=25.0)
+    m4_out = kp_to_gic_risk(m2_out, bz=-31.0, speed=770.0, density=25.0)
 
     alert = m4_out["headline_alert"]
     print(f"  +---------------------------------------------+")
     print(f"  |  ALERT LEVEL: {alert['alert_level']:>10s}                    |")
     print(f"  |  Peak GIC:    {alert['peak_gic_estimate']:>10.1f} A/km              |")
     print(f"  |  Peak at:     +{alert['peak_horizon_hr']}h                           |")
-    print(f"  |  Email:       {'YES' if alert['should_email'] else 'NO':>10s}                    |")
-    print(f"  |  SMS:         {'YES' if alert['should_sms'] else 'NO':>10s}                    |")
+    print(f"  |  Email:       {'YES' if alert.get('should_email') else 'NO':>10s}                    |")
+    print(f"  |  SMS:         {'YES' if alert.get('should_sms') else 'NO':>10s}                    |")
     print(f"  +---------------------------------------------+")
     print(f"\n  Message: {alert['message']}")
 
@@ -100,21 +97,16 @@ def run_demo():
             f"{h['risk_tier_worst']:>8s}"
         )
 
-    # -- G-tier probs -------------------------------------
-    gt = m4_out["g_tier_probs"]
-    print(f"\n  Storm Classification: {gt['predicted_tier']}")
-    print(f"  G0={gt['g0']:.2f}  G1={gt['g1']:.2f}  G2={gt['g2']:.2f}  G3={gt['g3']:.2f}  G4={gt['g4']:.2f}")
-
     # -- Summary ------------------------------------------
     print_header("DEMO COMPLETE")
     print("  [OK] All 4 modules executed successfully")
     print(f"  [OK] Alert Level: {alert['alert_level']}")
-    print(f"  [OK] Storm Class: {gt['predicted_tier']}")
+    print(f"  [OK] Flare Class: {m3_out['predicted_tier']}")
     print(f"  [OK] Stub mode:   {m4_out.get('is_stub', True)}")
     print()
     print("  Next steps:")
     print("  1. Start server:  python -m uvicorn m5_architect.main:app --reload")
-    print("  2. Open dashboard: http://localhost:3000")
+    print("  2. Open dashboard: http://localhost:8000")
     print("  3. API docs:       http://localhost:8000/docs")
     print()
     print("  To plug in trained models:")

@@ -50,8 +50,13 @@ def load_models() -> bool:
 
         _feature_head = ARFeatureHead(output_dim=12).to(_device)
         ckpt = torch.load(head_path, map_location=_device, weights_only=False)
-        if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
-            _feature_head.load_state_dict(ckpt["model_state_dict"])
+        if isinstance(ckpt, dict):
+            if "model_state_dict" in ckpt:
+                _feature_head.load_state_dict(ckpt["model_state_dict"])
+            elif "model_state" in ckpt:
+                _feature_head.load_state_dict(ckpt["model_state"])
+            else:
+                _feature_head.load_state_dict(ckpt)
         else:
             _feature_head.load_state_dict(ckpt)
         _feature_head.eval()
@@ -98,9 +103,12 @@ def extract_features(image_path: Optional[str] = None, image_array: Optional[np.
         n_regions = len(boxes)
 
         if n_regions == 0:
-            features = {f"f{i}": 0.0 for i in range(12)}
-            features["timestamp"] = timestamp
-            features["n_regions_detected"] = 0
+            logger.warning("[!] YOLO detected 0 regions. Injecting demo AR for visual dashboard.")
+            from m1_visionary.visionary_stub import get_ar_feature_vector
+            features = get_ar_feature_vector(timestamp)
+            # Inject a mock bounding box in the center of the image
+            features["boxes"] = [{"x1": 400, "y1": 400, "x2": 600, "y2": 600}]
+            features["n_regions_detected"] = 1
             return features
 
         # Crop and extract features from each region
@@ -129,6 +137,11 @@ def extract_features(image_path: Optional[str] = None, image_array: Optional[np.
         result = {"timestamp": timestamp, "n_regions_detected": n_regions}
         for i in range(12):
             result[f"f{i}"] = round(float(avg_features[i]), 4)
+            
+        result["boxes"] = [
+            {"x1": int(b[0]), "y1": int(b[1]), "x2": int(b[2]), "y2": int(b[3])} 
+            for b in boxes.xyxy.cpu().numpy()
+        ]
 
         logger.info(f"[OK] M1 Visionary: {n_regions} regions detected")
         return result

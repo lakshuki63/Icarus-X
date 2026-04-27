@@ -41,7 +41,7 @@ body{margin:0;background:#020617;color:#f8fafc;font-family:'Outfit',sans-serif;o
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
-const {ResponsiveContainer,AreaChart,Area,XAxis,YAxis,Tooltip,CartesianGrid,ReferenceLine,RadarChart,PolarGrid,PolarAngleAxis,Radar}=window.Recharts;
+const {ResponsiveContainer,AreaChart,Area,ComposedChart,Line,BarChart,Bar,Cell,XAxis,YAxis,Tooltip,CartesianGrid,ReferenceLine,RadarChart,PolarGrid,PolarAngleAxis,Radar}=window.Recharts;
 
 const WS_URL=`ws://${window.location.hostname}:8000/ws/live`;
 const API_URL=`http://${window.location.hostname}:8000`;
@@ -77,7 +77,24 @@ const CustomTooltip=({active,payload,label})=>{
   return null;
 };
 
-function MagnetogramPanel({m1Output,isReal}){
+const M1_FEATURES = [
+  { id: 'f0', name: 'Total Flux', desc: 'Total unsigned magnetic flux in region' },
+  { id: 'f1', name: 'PIL Length', desc: 'Polarity inversion line length' },
+  { id: 'f2', name: 'Strong Field', desc: 'Fraction of bbox with strong field' },
+  { id: 'f3', name: 'Shear Zone', desc: 'Area of strong magnetic shear' },
+  { id: 'f4', name: 'Gradient', desc: 'Maximum horizontal field gradient' },
+  { id: 'f5', name: 'PIL Curvature', desc: 'Tortuosity of polarity inversion line' },
+  { id: 'f6', name: 'Delta Region', desc: 'Opposite polarities in same umbra' },
+  { id: 'f7', name: 'Flux Imbalance', desc: 'Ratio of positive to negative flux' },
+  { id: 'f8', name: 'Helicity', desc: 'Current helicity proxy' },
+  { id: 'f9', name: 'Free Energy', desc: 'Proxy for free magnetic energy' },
+  { id: 'f10', name: 'Vertical Current', desc: 'Photospheric vertical current' },
+  { id: 'f11', name: 'Flux Change', desc: 'Rate of flux emergence or decay' }
+];
+
+function MagnetogramPanel({m1Output,isReal,isReplay}){
+  const [expanded, setExpanded] = useState(false);
+  
   return(
     <div class="glass rounded-3xl p-6 h-full relative overflow-hidden group">
       <div class="flex justify-between items-start mb-6">
@@ -90,56 +107,128 @@ function MagnetogramPanel({m1Output,isReal}){
         </div>
       </div>
       <div class="relative rounded-2xl overflow-hidden aspect-square border border-white/5 bg-black/40">
-        <img src="/static/magnetogram.png" class="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity duration-700" alt="SDO Magnetogram"/>
-        <div class="scanner-line"></div>
+        <img src={`/static/magnetogram.png?t=${Date.now()}`} class={`w-full h-full object-cover transition-opacity duration-700 ${isReplay ? 'opacity-20 grayscale' : 'opacity-60 group-hover:opacity-80'}`} alt="SDO Magnetogram"/>
+        
+        {isReplay && (
+          <div class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-20">
+            <div class="text-3xl mb-2">📼</div>
+            <div class="text-amber-500 font-bold tracking-widest text-sm uppercase mb-1">Archive Unavailable</div>
+            <div class="text-[10px] text-gray-400 font-mono">Historical imagery not loaded. Showing live proxy features.</div>
+          </div>
+        )}
+        
+        {!isReplay && <div class="scanner-line"></div>}
+        {m1Output?.boxes && m1Output.boxes.map((b, i) => {
+           const top = (b.y1 / 1024) * 100;
+           const left = (b.x1 / 1024) * 100;
+           const height = ((b.y2 - b.y1) / 1024) * 100;
+           const width = ((b.x2 - b.x1) / 1024) * 100;
+           return (
+             <div key={i} class="absolute border border-danger-500 bg-danger-500/10 shadow-[0_0_15px_rgba(239,68,68,0.5)]" 
+                  style={{top: `${top}%`, left: `${left}%`, width: `${width}%`, height: `${height}%`}}>
+                 <span class="absolute -top-4 left-0 text-[8px] bg-danger-500 text-white px-1 whitespace-nowrap font-mono font-bold">AR {12673 + i} [M1]</span>
+             </div>
+           );
+        })}
         <div class="absolute inset-0 pointer-events-none border-[20px] border-black/20"></div>
         <div class="absolute bottom-4 left-4 glass p-2 rounded-lg text-[10px] font-mono">
-          <div class="text-gray-400">Target: NOAA AR 12673</div>
+          <div class="text-gray-400">Source: SDO / HMI Live</div>
           <div class="text-purple-400">Regions Detected: {m1Output?.n_regions_detected||0}</div>
         </div>
       </div>
-      <div class="grid grid-cols-3 gap-2 mt-4">
-        {[0,1,2].map(i=>(
-          <div key={i} class="bg-white/5 p-2 rounded-xl text-center">
-            <div class="text-[9px] text-gray-500 uppercase">F{i}</div>
-            <div class="text-xs font-mono font-bold text-gray-300">{m1Output?.[`f${i}`]?.toFixed(2)||'0.00'}</div>
+      <div class="mt-4 border border-white/5 bg-black/20 rounded-xl overflow-hidden">
+        <button onClick={() => setExpanded(!expanded)} class="w-full p-3 flex justify-between items-center bg-white/5 hover:bg-white/10 transition-colors">
+          <span class="text-[10px] font-bold uppercase tracking-widest text-gray-400">AR Magnetic Features (12-dim)</span>
+          <span class="text-xs text-purple-400 font-bold">{expanded ? '▲ Collapse' : '▼ Expand'}</span>
+        </button>
+        {expanded && (
+          <div class="p-3 grid grid-cols-1 gap-2 max-h-48 overflow-y-auto border-t border-white/5 custom-scrollbar">
+            {M1_FEATURES.map((feat) => {
+              const val = m1Output?.[feat.id] || 0;
+              const pct = Math.min(100, Math.max(0, (val / 3) * 100));
+              const color = val > 2 ? 'bg-danger-500' : val > 1 ? 'bg-amber-500' : 'bg-safe-400';
+              return (
+                <div key={feat.id} class="bg-white/5 p-2 rounded-lg" title={feat.desc}>
+                  <div class="flex justify-between items-end mb-1">
+                    <div>
+                      <span class="text-[9px] font-bold text-purple-400 mr-1 uppercase">{feat.id}</span>
+                      <span class="text-[10px] text-gray-300 font-bold">{feat.name}</span>
+                    </div>
+                    <span class="text-[10px] font-mono text-gray-200">{val.toFixed(2)}</span>
+                  </div>
+                  <div class="h-1.5 bg-black/50 rounded-full overflow-hidden">
+                    <div class={`h-full ${color}`} style={{ width: `${pct}%` }}></div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 }
 
-function FlarePanel({flare}){
-  const prob=flare?.flare_probability||0;
-  const pct=Math.round(prob*100);
-  const color=prob > 0.7 ? RISK_COLORS.CRITICAL : prob > 0.4 ? RISK_COLORS.MEDIUM : RISK_COLORS.LOW;
-  return(
-    <div class="glass rounded-3xl p-6 h-full relative overflow-hidden">
-      <h3 class="text-[10px] font-black tracking-[0.2em] text-gray-400 uppercase mb-4">M3 Flare Classifier</h3>
-      <div class="flex flex-col items-center justify-center py-4">
-        <div class="relative w-40 h-40">
-          <svg class="w-full h-full transform -rotate-90">
-            <circle cx="80" cy="80" r="70" stroke="currentColor" stroke-width="8" fill="transparent" class="text-white/5"/>
-            <circle cx="80" cy="80" r="70" stroke="currentColor" stroke-width="8" fill="transparent" stroke-dasharray="440" stroke-dashoffset={440-(440*prob)} class="transition-all duration-1000" style={{color}}/>
-          </svg>
-          <div class="absolute inset-0 flex flex-col items-center justify-center">
-            <div class="text-4xl font-black" style={{color}}>{pct}%</div>
-            <div class="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Probability</div>
-          </div>
+function FlarePanel({ flare, isReal }) {
+  const prob = flare?.flare_probability || 0;
+  const isHigh = prob > 0.5;
+
+  const shapData = useMemo(() => {
+    if(!flare?.shap_values) return [];
+    const entries = Object.entries(flare.shap_values);
+    entries.sort((a,b) => Math.abs(b[1]) - Math.abs(a[1]));
+    const top3 = entries.slice(0, 3).map(([k, v]) => {
+      const feat = M1_FEATURES.find(f => f.id === k);
+      return {
+        name: feat ? feat.name : k.toUpperCase(),
+        value: v
+      };
+    });
+    return top3.reverse(); // largest at top
+  }, [flare]);
+
+  return (
+    <div class="glass rounded-3xl p-6 relative overflow-hidden group mb-6">
+      <div class="flex justify-between items-start mb-4">
+        <div>
+          <h3 class="text-[10px] font-black tracking-[0.2em] text-gray-400 uppercase">M3 XGBoost</h3>
+          <h2 class="text-xl font-bold text-gray-100">Flare Sentinel</h2>
         </div>
-        <div class="mt-6 text-center">
-          <div class="text-xl font-bold uppercase tracking-widest mb-1" style={{color}}>{flare?.predicted_tier||'QUIET'}</div>
-          <div class="text-[10px] text-gray-500 font-mono">Confidence: {flare?.confidence||'LOW'}</div>
+        <div class={`px-3 py-1 rounded-full text-[10px] font-bold border ${isReal?'bg-safe-500/10 border-safe-500/30 text-safe-400':'bg-amber-500/10 border-amber-500/30 text-amber-400'}`}>
+          {isReal?'XGBOOST ACTIVE':'PROXY MODE'}
         </div>
       </div>
-      <div class="mt-4 space-y-2">
-        {flare?.top_features?.slice(0,2).map((f,i)=>(
-          <div key={i} class="flex justify-between items-center text-[10px]">
-            <span class="text-gray-500 truncate mr-2">{f.name}</span>
-            <span class="text-purple-400 font-mono">{(f.shap_value||0).toFixed(3)}</span>
+      
+      <div class="mt-4 p-4 bg-white/5 rounded-2xl border border-white/5">
+        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 text-center">M/X-Class Probability</div>
+        <div class="flex flex-col items-center justify-center mb-4">
+          <div class={`text-5xl font-black tracking-tighter ${isHigh ? 'text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]' : 'text-gray-300'}`}>
+            {(prob * 100).toFixed(1)}%
           </div>
-        ))}
+          <div class="w-full h-1.5 bg-black/50 rounded-full mt-4 overflow-hidden">
+            <div class={`h-full ${isHigh ? 'bg-amber-500' : 'bg-safe-400'}`} style={{width: `${prob * 100}%`}}></div>
+          </div>
+        </div>
+
+        {shapData.length > 0 && (
+          <div class="mt-4 border-t border-white/5 pt-4">
+            <div class="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-2 text-center">Top Model Drivers (SHAP)</div>
+            <div class="h-24">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={shapData} layout="vertical" margin={{top:0, right:0, left:0, bottom:0}}>
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{fill:'#94a3b8', fontSize:9, fontFamily:'JetBrains Mono'}} width={80} />
+                  <Tooltip cursor={{fill: 'rgba(255,255,255,0.05)'}} contentStyle={{backgroundColor:'rgba(15,23,42,0.9)', borderColor:'rgba(255,255,255,0.1)', fontSize:'10px'}} />
+                  <Bar dataKey="value" radius={[0,4,4,0]}>
+                    {shapData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.value > 0 ? '#ef4444' : '#3b82f6'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -175,7 +264,9 @@ function GICPanel({alert}){
   );
 }
 
-function StatsGrid({swLatest,dq}){
+function StatsGrid({data}){
+  const swLatest = data?.solar_wind_latest;
+  const dq = data?.data_quality;
   const items=[
     {label:'Bz (IMF)',value:swLatest?.bz?.toFixed(1)||'0.0',unit:'nT',color:'text-blue-400'},
     {label:'Solar Velocity',value:swLatest?.vsw?.toFixed(0)||'400',unit:'km/s',color:'text-amber-400'},
@@ -198,7 +289,32 @@ function StatsGrid({swLatest,dq}){
 }
 
 function KpForecastChart({horizons}){
-  const data=horizons?.map(h=>({name:`+${h.horizon_hr}h`,kp:h.kp_predicted}))||[];
+  const [data, setData] = useState([]);
+  
+  const downsampledAttn = useMemo(() => {
+    const attn = horizons?.[0]?.attention_weights;
+    if (!attn || !attn.length) return Array(24).fill(0);
+    const bins = [];
+    for(let i=0; i<24; i++){
+      let sum=0;
+      for(let j=0; j<60; j++) sum += attn[i*60 + j] || 0;
+      bins.push(sum);
+    }
+    const max = Math.max(...bins) || 1;
+    return bins.map(b => b/max);
+  }, [horizons]);
+
+  useEffect(() => {
+    if(horizons) {
+      const d = horizons.map(h => ({
+        name: `+${h.horizon_hr}h`,
+        kp: h.kp_predicted,
+        low: h.kp_ci_low,
+        high: h.kp_ci_high
+      }));
+      setData(d);
+    }
+  }, [horizons]);
   return(
     <div class="glass rounded-3xl p-6 h-full min-h-[300px]">
       <div class="flex justify-between items-center mb-6">
@@ -220,15 +336,272 @@ function KpForecastChart({horizons}){
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false}/>
-            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill:'#64748b',fontSize:10,fontFamily:'JetBrains Mono'}}/>
-            <YAxis axisLine={false} tickLine={false} tick={{fill:'#64748b',fontSize:10,fontFamily:'JetBrains Mono'}} domain={[0,9]}/>
-            <Tooltip content={<CustomTooltip/>}/>
-            <Area type="monotone" dataKey="kp" stroke="#a78bfa" strokeWidth={4} fillOpacity={1} fill="url(#colorKp)"/>
-            <ReferenceLine y={5} stroke="#f59e0b" strokeDasharray="5 5"/>
-            <ReferenceLine y={7} stroke="#ef4444" strokeDasharray="5 5"/>
+            <XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false}/>
+            <YAxis domain={[0, 9]} stroke="#475569" fontSize={10} tickLine={false} axisLine={false} ticks={[0,3,5,7,9]}/>
+            <Tooltip contentStyle={{backgroundColor:'rgba(15,23,42,0.9)', borderColor:'rgba(255,255,255,0.1)'}} itemStyle={{color:'#c084fc'}} />
+            
+            {/* G-Tier Reference Lines */}
+            <ReferenceLine y={5} stroke="#eab308" strokeDasharray="3 3" strokeOpacity={0.5} label={{position:'insideTopLeft', value:'G1', fill:'#eab308', fontSize:9}}/>
+            <ReferenceLine y={7} stroke="#f97316" strokeDasharray="3 3" strokeOpacity={0.5} label={{position:'insideTopLeft', value:'G3', fill:'#f97316', fontSize:9}}/>
+            <ReferenceLine y={9} stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.5} label={{position:'insideTopLeft', value:'G5', fill:'#ef4444', fontSize:9}}/>
+
+            <Area type="monotone" dataKey="high" stroke="none" fill="#8b5cf6" fillOpacity={0.1} />
+            <Area type="monotone" dataKey="low" stroke="none" fill="#0f172a" fillOpacity={1} />
+            <Area type="monotone" dataKey="kp" stroke="#c084fc" fill="url(#colorKp)" strokeWidth={2}/>
           </AreaChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Attention Heatmap */}
+      <div class="mt-4 border-t border-white/5 pt-4">
+        <div class="flex justify-between items-end mb-2">
+          <h4 class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Temporal Attention (T-24h to Now)</h4>
+          <span class="text-[9px] text-gray-500 font-mono">BiGRU Feature Focus</span>
+        </div>
+        <div class="flex h-4 gap-[2px]">
+          {downsampledAttn.map((val, i) => {
+            return (
+              <div 
+                key={i} 
+                class="flex-1 rounded-sm relative group/tt"
+                style={{ backgroundColor: `rgba(239, 68, 68, ${0.1 + val * 0.9})` }}
+              >
+                <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover/tt:block bg-black border border-white/10 text-white text-[9px] py-1 px-2 rounded font-mono whitespace-nowrap z-10">
+                  T-{24-i}h: {(val*100).toFixed(0)}%
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div class="flex justify-between mt-1 text-[8px] font-mono text-gray-500">
+          <span>-24h</span>
+          <span>-12h</span>
+          <span>NOW</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SolarWindChart({ mode, eventName }) {
+  const [data, setData] = useState([]);
+  
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/solar-wind/history?hours=24`);
+        const json = await res.json();
+        const formatted = json.readings.map(r => {
+          const d = new Date(r.timestamp);
+          return {
+            time: `${d.getHours().toString().padStart(2, '0')}:00`,
+            bz: r.bz_gsm,
+            vsw: r.speed
+          };
+        });
+        setData(formatted);
+      } catch (e) {
+        console.error("Failed to fetch solar wind history", e);
+      }
+    };
+    
+    // Fetch immediately on mount or when mode/event changes
+    fetchHistory();
+    const t = setInterval(fetchHistory, 60000);
+    return () => clearInterval(t);
+  }, [mode, eventName]);
+
+  return (
+    <div class="glass rounded-3xl p-6 relative overflow-hidden mb-6 h-64">
+      <h3 class="text-[10px] font-black tracking-[0.2em] text-gray-400 uppercase mb-4">24-Hour Solar Wind Telemetry</h3>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false} />
+          <XAxis dataKey="time" tick={{fill:'#64748b',fontSize:10,fontFamily:'JetBrains Mono'}} axisLine={false} tickLine={false} />
+          <YAxis yAxisId="left" domain={[-50, 20]} tick={{fill:'#ef4444',fontSize:10,fontFamily:'JetBrains Mono'}} axisLine={false} tickLine={false} />
+          <YAxis yAxisId="right" orientation="right" domain={['dataMin', 'dataMax']} tick={{fill:'#f59e0b',fontSize:10,fontFamily:'JetBrains Mono'}} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={{backgroundColor:'rgba(15,23,42,0.9)', borderColor:'rgba(255,255,255,0.1)'}} itemStyle={{fontFamily:'JetBrains Mono', fontSize:'12px'}} labelStyle={{color:'#94a3b8'}} />
+          
+          <ReferenceLine yAxisId="left" y={-5} stroke="#f97316" strokeDasharray="5 5" />
+          <ReferenceLine yAxisId="left" y={-10} stroke="#dc2626" strokeDasharray="5 5" />
+          
+          <Line yAxisId="left" type="monotone" dataKey="bz" stroke="#ef4444" strokeWidth={2} dot={false} name="Bz (nT)" />
+          <Line yAxisId="right" type="monotone" dataKey="vsw" stroke="#f59e0b" strokeWidth={2} dot={false} name="Velocity (km/s)" />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function PipelineLogPanel({ logs, connected }) {
+  const getModuleColor = (mod) => {
+    switch(mod) {
+      case 'M1': return 'text-purple-400 bg-purple-500/10 border-purple-500/30';
+      case 'M2': return 'text-blue-400 bg-blue-500/10 border-blue-500/30';
+      case 'M3': return 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+      case 'M4': return 'text-safe-400 bg-safe-500/10 border-safe-500/30';
+      case 'M5': return 'text-gray-300 bg-gray-500/10 border-gray-500/30';
+      case 'DATA': return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30';
+      default: return 'text-gray-400 bg-gray-500/10 border-gray-500/30';
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    switch(status) {
+      case 'OK': return <span class="text-safe-400">🟢 OK</span>;
+      case 'WARN': return <span class="text-amber-400">🟡 WARN</span>;
+      case 'ERROR': return <span class="text-danger-500">🔴 ERROR</span>;
+      case 'STUB': return <span class="text-gray-500">⚪ ⚠ STUB</span>;
+      default: return <span>{status}</span>;
+    }
+  };
+
+  return (
+    <div class="glass rounded-3xl p-6 h-full relative overflow-hidden flex flex-col min-h-[300px]">
+      <div class="flex justify-between items-center mb-4">
+        <div>
+          <h3 class="text-[10px] font-black tracking-[0.2em] text-gray-400 uppercase mb-1">System Audit</h3>
+          <h2 class="text-lg font-bold">Live Pipeline Log</h2>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class={`w-2 h-2 rounded-full ${connected ? 'bg-safe-400 animate-pulse' : 'bg-danger-500'}`}></div>
+          <span class="text-[10px] text-gray-500 font-mono uppercase">{connected ? 'Live' : 'Offline'}</span>
+        </div>
+      </div>
+      
+      <div class="flex-1 bg-black/60 rounded-xl p-4 overflow-y-auto font-mono text-[11px] border border-white/5">
+        {(!logs || logs.length === 0) ? (
+           <div class="text-gray-600 italic">Waiting for pipeline execution...</div>
+        ) : (
+          <table class="w-full text-left border-collapse">
+            <tbody>
+              {logs.map((log, i) => (
+                <tr key={i} class="border-b border-white/5 hover:bg-white/5 transition-colors">
+                  <td class="py-2 text-gray-500 whitespace-nowrap align-top pr-2">{log.timestamp}</td>
+                  <td class="py-2 px-2 align-top">
+                    <span class={`px-2 py-0.5 rounded border text-[9px] font-bold ${getModuleColor(log.module)}`}>
+                      {log.module}
+                    </span>
+                  </td>
+                  <td class="py-2 px-2 align-top whitespace-nowrap">{getStatusBadge(log.status)}</td>
+                  <td class="py-2 px-2 text-gray-300 w-full">{log.detail}</td>
+                  <td class="py-2 pl-2 text-right text-gray-500 whitespace-nowrap align-top">{log.duration_ms}ms</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModelStatusPanel({ audit }) {
+  if (!audit) return null;
+  return (
+    <div class="glass rounded-3xl p-6 relative overflow-hidden mb-6">
+      <h3 class="text-[10px] font-black tracking-[0.2em] text-gray-400 uppercase mb-4">Pipeline Model Status</h3>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {Object.entries(audit).map(([name, info], i) => {
+          const isOk = info.status === 'OK';
+          return (
+            <div key={i} class="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col justify-between">
+              <div>
+                <div class="text-[10px] text-gray-500 font-black mb-2 uppercase">{name.replace(/_/g, ' ')}</div>
+                <div class={`text-xs font-black mb-1 ${isOk ? 'text-safe-400' : 'text-danger-500'}`}>
+                  {isOk ? '✅ LOADED' : `❌ ${info.status}`}
+                </div>
+              </div>
+              <div class="mt-2">
+                {info.size_mb && <div class="text-[9px] text-gray-400 font-mono">Size: {info.size_mb} MB</div>}
+                {info.action && <div class="text-[9px] text-amber-500 font-mono font-bold mt-1">Action: {info.action}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StormHistoryPanel() {
+  const [loading, setLoading] = useState(false);
+  const storms = [
+    { id: "sept_2017", name: "September 2017 X9.3 Storm", date: "Sep 6, 2017", kp: 8, alert: "CRITICAL", desc: "Largest flare of Solar Cycle 24. Kp reached 8 (G4). 40 Starlink satellites de-orbited in Feb 2022 storm." },
+    { id: "halloween_2003", name: "Halloween Storms 2003", date: "Oct 28, 2003", kp: 9, alert: "CRITICAL", desc: "Kp = 9. Swedish power grid outage. 47,000 customers lost power." },
+    { id: "carrington_1859", name: "Carrington Event 1859", date: "Sep 1, 1859", kp: 9, alert: "CRITICAL", desc: "Strongest storm in recorded history. Global telegraph lines caught fire." },
+    { id: "quebec_1989", name: "Quebec Blackout 1989", date: "Mar 13, 1989", kp: 9, alert: "CRITICAL", desc: "Kp = 9. Quebec power grid failed. 6 million people lost power for 9 hours." }
+  ];
+
+  const handleReplay = async (id) => {
+    setLoading(true);
+    try {
+      await fetch(`${API_URL}/api/replay/${id}`, { method: 'GET' });
+    } catch(e) {
+      console.error("Replay error", e);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div class="glass rounded-3xl p-6 relative overflow-hidden mb-6">
+      <h3 class="text-[10px] font-black tracking-[0.2em] text-gray-400 uppercase mb-4">Storm History & Model Performance</h3>
+      <div class="space-y-4">
+        {storms.map(storm => (
+          <div key={storm.id} class="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-3 mb-2">
+                <span class="text-xl">⚡</span>
+                <h4 class="text-sm font-bold text-gray-100 uppercase tracking-wide">{storm.name}</h4>
+              </div>
+              <div class="text-[10px] font-mono text-gray-400 mb-2">
+                Date: {storm.date} | True Kp: {storm.kp} | True Alert: {storm.alert}
+              </div>
+              <p class="text-[11px] text-gray-500 italic">"{storm.desc}"</p>
+            </div>
+            <div>
+              <button disabled={loading} onClick={() => handleReplay(storm.id)} class="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/50 text-purple-400 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all whitespace-nowrap">
+                {loading ? 'Replaying...' : '▶ Replay Storm'}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DataFreshness({ data, time }) {
+  const getStatus = (timestamp) => {
+    if (data?.mode === 'REPLAY') return { text: 'REPLAY', color: 'text-amber-500', dot: 'bg-amber-500' };
+    if (!timestamp) return { text: 'OFFLINE', color: 'text-danger-500', dot: 'bg-danger-500' };
+    
+    const diffMins = (time.getTime() - new Date(timestamp).getTime()) / 60000;
+    
+    // Fallbacks for simulated data times
+    if (diffMins < 60) return { text: 'FRESH', color: 'text-safe-400', dot: 'bg-safe-400 animate-pulse' };
+    return { text: 'ONLINE', color: 'text-cyan-400', dot: 'bg-cyan-400' };
+  };
+
+  const sdo = getStatus(data?.m1_features?.timestamp);
+  const dscovr = getStatus(data?.solar_wind_latest?.timestamp);
+  const omni = getStatus(data?.solar_wind_latest?.timestamp);
+
+  const Item = ({ label, status }) => (
+    <div class="flex items-center gap-2">
+      <span class="text-gray-500 uppercase">{label}:</span>
+      <div class="flex items-center gap-1">
+        <div class={`w-1.5 h-1.5 rounded-full ${status.dot}`}></div>
+        <span class={`font-bold ${status.color}`}>{status.text}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div class="flex flex-wrap gap-4 md:gap-6 text-[10px] font-mono bg-white/5 px-4 py-2 rounded-lg border border-white/5">
+      <Item label="SDO_HMI" status={sdo} />
+      <Item label="DSCOVR" status={dscovr} />
+      <Item label="NOAA_KP" status={omni} />
     </div>
   );
 }
@@ -239,7 +612,6 @@ function App(){
   useEffect(()=>{const t=setInterval(()=>setTime(new Date()),1000);return()=>clearInterval(t)},[]);
 
   const m1_real=data?.data_quality?.m1_real||false;
-  const m1_features=data?.m1_features||{}; // Need to ensure M5 sends this
 
   return(
     <div class="min-h-screen p-4 md:p-8">
@@ -252,6 +624,7 @@ function App(){
                 <div class="w-4 h-4 bg-white rounded-full"></div>
               </div>
               <h1 class="text-3xl font-black tracking-tight glow-text-purple">ICARUS-X</h1>
+              {data?.mode === 'REPLAY' && <span class="px-2 py-1 bg-amber-500 text-black text-[10px] font-black rounded uppercase ml-2 animate-pulse">REPLAY MODE: {data.event_name}</span>}
             </div>
             <p class="text-sm text-gray-500 font-medium tracking-wide uppercase">Planetary Defense & Space Weather Operations</p>
           </div>
@@ -266,28 +639,34 @@ function App(){
 
         {/* Top Row Stats */}
         <div class="mb-8">
-          <StatsGrid swLatest={data?.solar_wind_latest} dq={data?.data_quality}/>
+          <StatsGrid data={data} />
         </div>
+        
+        {/* Solar Wind Chart */}
+        <SolarWindChart mode={data?.mode} eventName={data?.event_name} />
 
-        {/* Main Grid */}
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <div class="lg:col-span-1"><MagnetogramPanel m1Output={data?.flare} isReal={m1_real}/></div>
+          <div class="lg:col-span-1"><MagnetogramPanel m1Output={data?.m1_features} isReal={m1_real} isReplay={data?.mode === 'REPLAY'}/></div>
           <div class="lg:col-span-2"><KpForecastChart horizons={data?.kp_forecast?.horizons}/></div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <div class="lg:col-span-2"><GICPanel alert={data?.gic_risk?.headline_alert}/></div>
-          <div class="lg:col-span-1"><FlarePanel flare={data?.flare}/></div>
+          <div class="lg:col-span-1"><FlarePanel flare={data?.flare} isReal={data?.data_quality?.m3_real||false}/></div>
         </div>
+
+        <div class="mb-6">
+          <PipelineLogPanel logs={data?.pipeline_log} connected={connected}/>
+        </div>
+
+        <ModelStatusPanel audit={data?.model_audit} />
+
+        <StormHistoryPanel />
 
         {/* Footer */}
         <div class="mt-12 flex flex-col md:flex-row justify-between items-center py-6 border-t border-white/5 gap-4">
           <div class="text-[10px] font-bold text-gray-600 uppercase tracking-[0.3em]">Module 5 Architect v1.2 // Mission Critical Interface</div>
-          <div class="flex gap-6 text-[10px] text-gray-500 font-mono">
-            <span>SDO_DATA: OK</span>
-            <span>DSCOVR: OK</span>
-            <span>OMNI: OK</span>
-          </div>
+          <DataFreshness data={data} time={time} />
         </div>
       </div>
     </div>

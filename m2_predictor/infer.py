@@ -92,26 +92,49 @@ def _real_forecast(
 ) -> Dict[str, Any]:
     """Run real model inference with MC Dropout uncertainty."""
     try:
-        x = torch.tensor(input_window, dtype=torch.float32).unsqueeze(0).to(_device)
+        if SCALER_PATH.exists():
+            scaler = joblib.load(SCALER_PATH)
+            # input_window is (24, 19). scaler expects 2D array.
+            scaled_window = scaler.transform(input_window)
+        else:
+            logger.warning("[!] Scaler not found, using unscaled inputs. Forecast may be degraded.")
+            scaled_window = input_window
+
+        x = torch.tensor(scaled_window, dtype=torch.float32).unsqueeze(0).to(_device)
 
         result = model.predict_with_uncertainty(x, n_samples=30)
 
+        # Build 1440-point attention array: distribute each hourly weight
+        # evenly across 60 minute-slots so the frontend heatmap (which bins
+        # attn[i*60:(i+1)*60]) lights up correctly for every hour.
+        raw_attn = result["attention_weights"][0].cpu().numpy()  # shape (T,)
+        n_steps = len(raw_attn)
+        if n_steps == 24:
+            # One weight per hour — spread evenly across 60 minutes
+            attn_1440 = np.zeros(1440, dtype=np.float32)
+            for idx in range(24):
+                attn_1440[idx * 60:(idx + 1) * 60] = raw_attn[idx] / 60.0
+        elif n_steps >= 1440:
+            attn_1440 = raw_attn[:1440].tolist()
+        else:
+            # Generic: repeat each weight proportionally
+            attn_1440 = np.zeros(1440, dtype=np.float32)
+            scale = 1440 / n_steps
+            for idx in range(n_steps):
+                start = int(idx * scale)
+                end = int((idx + 1) * scale)
+                attn_1440[start:end] = raw_attn[idx] / max(1, end - start)
+        attn_list = attn_1440.tolist() if hasattr(attn_1440, 'tolist') else list(attn_1440)
+
         horizons = []
         for i, h in enumerate(FORECAST_HORIZONS):
-            attn = result["attention_weights"][0].cpu().numpy().tolist()
-            # Pad/truncate attention to 1440 for contract compliance
-            if len(attn) < 1440:
-                attn = attn + [0.0] * (1440 - len(attn))
-            else:
-                attn = attn[:1440]
-
             horizons.append({
                 "horizon_hr": h,
                 "kp_predicted": round(float(result["kp_pred"][0, i].cpu()), 2),
                 "kp_ci_low": round(float(result["kp_ci_low"][0, i].cpu()), 2),
                 "kp_ci_high": round(float(result["kp_ci_high"][0, i].cpu()), 2),
                 "kp_std": round(float(result["kp_std"][0, i].cpu()), 2),
-                "attention_weights": attn,
+                "attention_weights": attn_list,
             })
 
         return {

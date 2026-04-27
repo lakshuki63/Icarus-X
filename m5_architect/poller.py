@@ -22,6 +22,25 @@ _solar_wind_buffer: List[Dict[str, Any]] = []
 _kp_buffer: List[Dict[str, Any]] = []
 _MAX_BUFFER_HOURS = 48
 
+import os
+from pathlib import Path
+
+SDO_URL = "https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_HMIB.jpg"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+IMAGE_PATH = PROJECT_ROOT / "frontend" / "magnetogram.png"
+
+async def fetch_magnetogram():
+    """Download the latest SDO magnetogram image."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(SDO_URL)
+            if resp.status_code == 200:
+                with open(IMAGE_PATH, "wb") as f:
+                    f.write(resp.content)
+                logger.debug(f"[POLL] SDO Magnetogram updated at {IMAGE_PATH}")
+    except Exception as e:
+        logger.error(f"[POLL] SDO Magnetogram fetch failed: {e}")
+
 
 async def poll_once():
     """Fetch latest data from NOAA and update buffers."""
@@ -46,6 +65,9 @@ async def poll_once():
             if kp_data:
                 _process_kp_data(kp_data)
 
+            # Fetch magnetogram alongside solar wind
+            await fetch_magnetogram()
+
             logger.debug(f"[POLL] NOAA updated. SW Buffer: {len(_solar_wind_buffer)}, Kp Buffer: {len(_kp_buffer)}")
         except Exception as e:
             logger.error(f"[POLL] Fetch failed: {e}")
@@ -62,24 +84,23 @@ def _process_noaa_data(mag: List[List[Any]], plasma: List[List[Any]]):
     m_headers = mag[0]
     p_headers = plasma[0]
     
-    # Just take the last 100 points for simplicity in this stub
+    # Use dictionary alignment instead of strict index matching to prevent data loss
+    p_dict = {row[0]: row for row in plasma[1:]}
     new_readings = []
-    for i in range(1, min(len(mag), len(plasma))):
-        m_row = mag[i]
-        p_row = plasma[i]
-        
-        # Simple alignment check
-        if m_row[0] != p_row[0]: continue
+    
+    for m_row in mag[1:]:
+        ts = m_row[0]
+        p_row = p_dict.get(ts)
         
         reading = {
-            "timestamp": m_row[0],
+            "timestamp": ts,
             "bx_gsm": float(m_row[1]) if m_row[1] else 0.0,
             "by_gsm": float(m_row[2]) if m_row[2] else 0.0,
             "bz_gsm": float(m_row[3]) if m_row[3] else 0.0,
-            "bt": float(m_row[6]) if m_row[6] else 0.0,
-            "density": float(p_row[1]) if p_row[1] else 0.0,
-            "speed": float(p_row[2]) if p_row[2] else 0.0,
-            "temperature": float(p_row[3]) if p_row[3] else 0.0,
+            "bt": float(m_row[6]) if len(m_row) > 6 and m_row[6] else 0.0,
+            "density": float(p_row[1]) if p_row and len(p_row) > 1 and p_row[1] else 5.0,
+            "speed": float(p_row[2]) if p_row and len(p_row) > 2 and p_row[2] else 400.0,
+            "temperature": float(p_row[3]) if p_row and len(p_row) > 3 and p_row[3] else 100000.0,
         }
         new_readings.append(reading)
     

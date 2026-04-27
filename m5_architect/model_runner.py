@@ -25,6 +25,26 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 from loguru import logger
+import time
+import json
+
+PIPELINE_LOG = []
+
+def utcnow_str():
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")
+
+def log_step(module, action, status, detail, duration_ms=None):
+    PIPELINE_LOG.append({
+        "timestamp": utcnow_str(),
+        "module": module,       # "M1", "M2", "M3", "M4", "M5", "DATA"
+        "action": action,       # "FETCH", "LOAD", "INFER", "SAVE", etc.
+        "status": status,       # "OK", "WARN", "ERROR", "STUB"
+        "detail": detail,       # human-readable description
+        "duration_ms": duration_ms
+    })
+    # Keep only last 50 entries
+    while len(PIPELINE_LOG) > 50:
+        PIPELINE_LOG.pop(0)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -313,28 +333,80 @@ def run_full_pipeline(
     Returns:
         Merged output dict matching WebSocket contract
     """
+    t_start = time.time()
     timestamp = datetime.now(timezone.utc).isoformat()
     logger.info(f"[Runner] Pipeline run at {timestamp}")
 
     # Step 1 — Solar wind
+    t0 = time.time()
     readings = _load_solar_wind(solar_wind_readings)
     sw_arr = _solar_wind_to_dataframe(readings)
     bz, speed, density = _get_current_conditions(readings)
+    api_time = int((time.time() - t0) * 1000)
+    
+    log_step("DATA", "FETCH", "OK",
+        f"NOAA DSCOVR API → Bz={bz:.1f} nT, Vsw={speed:.0f} km/s, Np={density:.1f}",
+        duration_ms=api_time)
 
     # Step 2 — AR features (M1 Visionary)
+    t0 = time.time()
     from m1_visionary.visionary import extract_features, _yolo_model
-    m1_output = extract_features()
+    image_path = str(PROJECT_ROOT / "frontend" / "magnetogram.png")
+    m1_output = extract_features(image_path=image_path)
     ar_features = {f"f{i}": m1_output.get(f"f{i}", 0.0) for i in range(12)}
+    ar_features["boxes"] = m1_output.get("boxes", [])
+    ar_features["n_regions_detected"] = m1_output.get("n_regions_detected", 0)
+    ar_features["timestamp"] = m1_output.get("timestamp", timestamp)
     m1_real = (_yolo_model is not None)
+    
+    load_time = int((time.time() - t0) * 1000)
+    n_rows = ar_features["n_regions_detected"]
+    f0 = ar_features.get("f0", 0.0)
+    f1 = ar_features.get("f1", 0.0)
+    f11 = ar_features.get("f11", 0.0)
+    
+    log_step("M1", "LOAD", "OK" if m1_real else "WARN",
+        f"ar_features → {n_rows} regions. Features: f0={f0:.3f} f1={f1:.3f} ... f11={f11:.3f}",
+        duration_ms=load_time)
 
     # Step 3 — M2: Kp forecast (uses solar wind + AR features)
+    t0 = time.time()
     m2_output, m2_real = _run_m2(sw_arr, ar_features, timestamp)
+    m2_time = int((time.time() - t0) * 1000)
+    
+    kp_3h = m2_output["horizons"][0]["kp_predicted"] if m2_output.get("horizons") else 0.0
+    ci_3h = m2_output["horizons"][0]["kp_ci_high"] - kp_3h if m2_output.get("horizons") else 0.0
+    
+    log_step("M2", "INFER", "OK" if m2_real else "STUB",
+        f"BiGRU checkpoint: {'models/bigru_predictor.pt' if m2_real else 'NOT FOUND'}. "
+        f"Kp 3hr={kp_3h:.2f} ±{ci_3h:.2f}",
+        duration_ms=m2_time)
 
     # Step 4 — M3: Flare probability (INDEPENDENT — uses AR proxy only)
+    t0 = time.time()
     m3_output, m3_real = _run_m3(ar_features)
+    m3_time = int((time.time() - t0) * 1000)
+    
+    flare_prob = m3_output.get("flare_probability", 0.0)
+    flare_class = m3_output.get("flare_class", "none")
+    log_step("M3", "INFER", "OK" if m3_real else "STUB",
+        f"XGBoost checkpoint: {'models/xgb_flare_sentinel.json' if m3_real else 'NOT FOUND'}. "
+        f"Flare prob={flare_prob:.2f}, class={flare_class}",
+        duration_ms=m3_time)
 
     # Step 5 — M4: GIC risk (uses M2 Kp output only)
+    t0 = time.time()
     m4_output, m4_real = _run_m4(m2_output, bz, speed, density)
+    m4_time = int((time.time() - t0) * 1000)
+    
+    headline = m4_output.get("headline_alert", {})
+    peak_gic = headline.get("peak_gic_estimate", 0.0)
+    peak_hr = headline.get("peak_horizon_hr", 3)
+    alert_level = headline.get("alert_level", "LOW")
+    log_step("M4", "COMPUTE", "OK" if m4_real else "STUB",
+        f"GIC formula: GIC=10^(0.28×Kp-0.90). "
+        f"Peak GIC={peak_gic:.1f} A/km at +{peak_hr}h. Alert={alert_level}",
+        duration_ms=m4_time)
 
     # Step 6 — Merge into WebSocket contract
     result = {
@@ -360,6 +432,21 @@ def run_full_pipeline(
         f"M3={'real' if m3_real else 'fallback'} "
         f"M4={'real' if m4_real else 'fallback'}"
     )
+    
+    total_time_ms = int((time.time() - t_start) * 1000)
+    
+    # Optional: we can compute JSON size using a default serializer to handle numpy types if present, 
+    # but the result should be plain python types.
+    try:
+        payload_bytes = len(json.dumps(result))
+    except Exception:
+        payload_bytes = 0
+        
+    log_step("M5", "COMPLETE", "OK",
+        f"Full pipeline: {total_time_ms}ms. "
+        f"WebSocket payload: {payload_bytes} bytes",
+        duration_ms=total_time_ms)
+        
     return result
 
 

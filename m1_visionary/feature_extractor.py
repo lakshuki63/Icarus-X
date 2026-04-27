@@ -17,30 +17,37 @@ class ARFeatureHead(nn.Module):
 
     def __init__(self, output_dim: int = 12):
         super().__init__()
-        self.features = nn.Sequential(
+        self.conv1 = nn.Sequential(
             nn.Conv2d(1, 32, 3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.MaxPool2d(2),
-
+            nn.MaxPool2d(2)
+        )
+        self.conv2 = nn.Sequential(
             nn.Conv2d(32, 64, 3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.MaxPool2d(2),
-
+            nn.MaxPool2d(2)
+        )
+        self.conv3 = nn.Sequential(
             nn.Conv2d(64, 128, 3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.AdaptiveAvgPool2d(4),
+            nn.AdaptiveAvgPool2d(4)
         )
-        self.classifier = nn.Sequential(
+        self.head = nn.Sequential(
             nn.Flatten(),
             nn.Linear(128 * 4 * 4, 256),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(256, output_dim),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, output_dim)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Extract features from (B, 1, 64, 64) patches → (B, 12)."""
-        return self.classifier(self.features(x))
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        return self.head(x)
